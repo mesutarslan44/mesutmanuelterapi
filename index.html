@@ -1436,6 +1436,8 @@
                     // Enable OCR buttons
                     document.getElementById('ocrBtn').disabled = false;
                     document.getElementById('ocrTranslateBtn').disabled = false;
+                    // Auto-run OCR + translate
+                    setTimeout(() => runOCRandTranslate(), 300);
                 };
                 img.src = e.target.result;
             };
@@ -1501,23 +1503,53 @@
         }
 
         // ===== TRANSLATION =====
+        async function translateChunk(text, langpair) {
+            const res = await fetch(`https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=${langpair}`);
+            const data = await res.json();
+            if (data.responseData && data.responseData.translatedText) {
+                return data.responseData.translatedText;
+            }
+            return text;
+        }
+
+        async function translateLong(text, langpair) {
+            if (text.length <= 450) {
+                return await translateChunk(text, langpair);
+            }
+            // Split into sentences or chunks of ~450 chars
+            const sentences = text.match(/[^.!?\n]+[.!?\n]?/g) || [text];
+            let chunks = [];
+            let current = '';
+            for (const s of sentences) {
+                if ((current + s).length > 450) {
+                    if (current) chunks.push(current);
+                    current = s;
+                } else {
+                    current += s;
+                }
+            }
+            if (current) chunks.push(current);
+
+            let results = [];
+            for (const chunk of chunks) {
+                const translated = await translateChunk(chunk, langpair);
+                results.push(translated);
+            }
+            return results.join(' ');
+        }
+
         async function translateText() {
             const text = document.getElementById('noteOriginal').value.trim();
-            if (!text) { toast('❌ Cevrilecek metin girin'); return; }
+            if (!text) { toast('\u274c Cevrilecek metin girin'); return; }
 
             const box = document.getElementById('translateBox');
             const out = document.getElementById('translatedText');
             box.style.display = 'block';
-            out.innerHTML = '<span class="loading">⏳ Cevriliyor...</span>';
+            out.innerHTML = '<span class="loading">\u23f3 Cevriliyor...</span>';
 
             try {
-                const res = await fetch(`https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=en|tr`);
-                const data = await res.json();
-                if (data.responseData && data.responseData.translatedText) {
-                    out.textContent = data.responseData.translatedText;
-                } else {
-                    out.textContent = 'Ceviri yapilamadi.';
-                }
+                const translated = await translateLong(text, 'en|tr');
+                out.textContent = translated;
             } catch (e) {
                 out.textContent = 'Ceviri hatasi: ' + e.message;
             }
