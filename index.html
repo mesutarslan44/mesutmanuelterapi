@@ -11,6 +11,7 @@
         rel="stylesheet">
     <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
     <style>
         :root {
             --bg: #0f172a;
@@ -705,6 +706,71 @@
             transform: translateY(-1px);
         }
 
+        .ocr-actions {
+            display: flex;
+            gap: 8px;
+            margin-top: 10px;
+            flex-wrap: wrap;
+        }
+
+        .btn-ocr {
+            padding: 8px 16px;
+            background: linear-gradient(135deg, var(--purple), var(--pink));
+            border: none;
+            border-radius: 8px;
+            color: #fff;
+            font: inherit;
+            font-size: 12px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-ocr:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 16px rgba(139, 92, 246, 0.3);
+        }
+
+        .btn-ocr:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .ocr-progress {
+            width: 100%;
+            height: 6px;
+            background: var(--bg3);
+            border-radius: 3px;
+            margin-top: 8px;
+            overflow: hidden;
+            display: none;
+        }
+
+        .ocr-progress.active {
+            display: block;
+        }
+
+        .ocr-progress-bar {
+            height: 100%;
+            background: linear-gradient(90deg, var(--purple), var(--pink));
+            border-radius: 3px;
+            width: 0%;
+            transition: width 0.3s;
+        }
+
+        .ocr-status {
+            font-size: 11px;
+            color: var(--dim);
+            margin-top: 4px;
+            font-style: italic;
+            display: none;
+        }
+
+        .ocr-status.active {
+            display: block;
+        }
+
         .modal-footer {
             padding: 16px 24px;
             border-top: 1px solid var(--glass-border);
@@ -995,11 +1061,23 @@
                     </div>
                     <input type="file" id="fileInput" accept="image/*" style="display:none"
                         onchange="handleFileSelect(event)">
+                    <div class="ocr-actions">
+                        <button class="btn-ocr" id="ocrBtn" onclick="runOCR()" disabled>🔍 Gorselden Metin Oku
+                            (OCR)</button>
+                    </div>
+                    <div class="ocr-progress" id="ocrProgress">
+                        <div class="ocr-progress-bar" id="ocrProgressBar"></div>
+                    </div>
+                    <div class="ocr-status" id="ocrStatus"></div>
                 </div>
                 <div class="form-group">
                     <label>Orijinal Metin (Ingilizce)</label>
                     <textarea id="noteOriginal" placeholder="Yabanci dildeki metni buraya yapin..."></textarea>
-                    <button class="btn-translate" onclick="translateText()">🌐 Turkceye Cevir</button>
+                    <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
+                        <button class="btn-translate" onclick="translateText()">🌐 Turkceye Cevir</button>
+                        <button class="btn-ocr" onclick="runOCRandTranslate()" id="ocrTranslateBtn" disabled>🔍🌐
+                            Gorselden Oku + Cevir</button>
+                    </div>
                     <div class="translate-box" id="translateBox" style="display:none">
                         <div class="label">🇹🇷 Turkce Ceviri</div>
                         <div class="text" id="translatedText"></div>
@@ -1340,10 +1418,71 @@
                     uploadedImage = canvas.toDataURL('image/webp', 0.7);
                     document.getElementById('uploadPreview').src = uploadedImage;
                     document.getElementById('uploadArea').classList.add('has-image');
+                    // Enable OCR buttons
+                    document.getElementById('ocrBtn').disabled = false;
+                    document.getElementById('ocrTranslateBtn').disabled = false;
                 };
                 img.src = e.target.result;
             };
             reader.readAsDataURL(file);
+        }
+
+        // ===== OCR =====
+        async function runOCR() {
+            if (!uploadedImage) { toast('❌ Once gorsel yukleyin'); return; }
+
+            const progress = document.getElementById('ocrProgress');
+            const progressBar = document.getElementById('ocrProgressBar');
+            const status = document.getElementById('ocrStatus');
+            const btn = document.getElementById('ocrBtn');
+
+            progress.classList.add('active');
+            status.classList.add('active');
+            btn.disabled = true;
+            btn.textContent = '⏳ Okunuyor...';
+            status.textContent = 'Tesseract OCR baslatiliyor...';
+            progressBar.style.width = '10%';
+
+            try {
+                const result = await Tesseract.recognize(uploadedImage, 'eng', {
+                    logger: m => {
+                        if (m.status === 'recognizing text') {
+                            const pct = Math.round(m.progress * 100);
+                            progressBar.style.width = pct + '%';
+                            status.textContent = 'Metin okunuyor... %' + pct;
+                        } else {
+                            status.textContent = m.status;
+                        }
+                    }
+                });
+
+                const text = result.data.text.trim();
+                if (text) {
+                    document.getElementById('noteOriginal').value = text;
+                    toast('✅ Metin basariyla okundu!');
+                } else {
+                    toast('⚠️ Gorselde okunabilir metin bulunamadi');
+                }
+
+                progressBar.style.width = '100%';
+                status.textContent = 'Tamamlandi!';
+            } catch (e) {
+                toast('❌ OCR hatasi: ' + e.message);
+                status.textContent = 'Hata olustu!';
+            } finally {
+                btn.disabled = false;
+                btn.textContent = '🔍 Gorselden Metin Oku (OCR)';
+                setTimeout(() => {
+                    progress.classList.remove('active');
+                    status.classList.remove('active');
+                }, 2000);
+            }
+        }
+
+        async function runOCRandTranslate() {
+            await runOCR();
+            const text = document.getElementById('noteOriginal').value.trim();
+            if (text) await translateText();
         }
 
         // ===== TRANSLATION =====
